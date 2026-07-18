@@ -265,12 +265,15 @@ class ToolScreen(BoxLayout):
         else:
             inputs = []
 
-        # 检查 ffmpeg
-        try:
-            ffmpeg_path = ffm.get_ffmpeg_path()
-        except FileNotFoundError as e:
-            self._toast(str(e))
-            return
+        # 检查 ffmpeg (OCR 和 TTS 不需要)
+        if self.tool.id not in ("tts", "id_card_ocr"):
+            try:
+                ffmpeg_path = ffm.get_ffmpeg_path()
+            except FileNotFoundError as e:
+                self._toast(str(e))
+                return
+        else:
+            ffmpeg_path = None
 
         out_dir = _output_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -283,6 +286,10 @@ class ToolScreen(BoxLayout):
 
         if self.tool.id == "tts":
             self._thread = threading.Thread(target=self._run_tts, args=(params,), daemon=True)
+        elif self.tool.id == "id_card_ocr":
+            self._thread = threading.Thread(target=self._run_ocr,
+                                             args=(inputs, params, out_dir),
+                                             daemon=True)
         else:
             self._thread = threading.Thread(target=self._run_ffmpeg,
                                              args=(inputs, params, ffmpeg_path, out_dir),
@@ -348,6 +355,45 @@ class ToolScreen(BoxLayout):
                 self._post(False, "TTS 失败, 请检查网络")
         except Exception as e:
             self._post(False, f"TTS 错误: {e}")
+
+    def _run_ocr(self, inputs, params, out_dir):
+        try:
+            from app.core.id_card_ocr import extract_id_info, save_result
+            if not inputs:
+                self._post(False, "没有输入图片")
+                return
+            img_path = str(inputs[0])
+            doc_type = params.get("doc_type", "auto")
+            engine = params.get("engine", "paddle")
+            save_raw = params.get("save_raw", False)
+
+            self._log(f"▶ 识别图片: {Path(img_path).name}")
+            self._log(f"  证件类型: {doc_type}  OCR引擎: {engine}")
+            self._set_progress(10)
+
+            info = extract_id_info(img_path, doc_type=doc_type, engine=engine)
+            self._set_progress(80)
+
+            if not save_raw and "raw_text" in info:
+                del info["raw_text"]
+
+            ts = int(time.time())
+            out = out_dir / f"id_ocr_{ts}.json"
+            save_result(info, out)
+
+            self._log("✔ 识别结果:")
+            self._log(f"  姓名: {info.get('name', '未识别')}")
+            self._log(f"  身份证号: {info.get('id_number', '未识别')}")
+            self._log(f"  性别: {info.get('gender', '未识别')}")
+            self._log(f"  村小组: {info.get('village_group', '未识别')}")
+            self._log(f"  证件类型: {info.get('doc_type', '未知')}")
+            self._log(f"  已保存到: {out}")
+            self._set_progress(100)
+            self._post(True, f"识别完成: {out.name}")
+        except ImportError as e:
+            self._post(False, f"OCR 依赖未安装: {e}")
+        except Exception as e:
+            self._post(False, f"OCR 识别错误: {e}")
 
     @staticmethod
     def _probe_duration(ffmpeg_path, in_path):

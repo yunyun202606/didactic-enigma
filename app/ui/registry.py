@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from app.core.tools import (
     CompressTool, FormatTool, TrimTool, CutHeadTailTool,
     SplitAutoTool, ToGifTool, ConcatTool, ExtractAudioTool,
-    AudioMergeTool, CodecTool, RotateTool, TTSTool,
+    AudioMergeTool, CodecTool, RotateTool, TTSTool, IDCardOCRTool,
 )
 
 
@@ -34,9 +34,10 @@ def all_tools() -> List[ToolCard]:
         ToolCard("concat", "视频拼接", "多段视频顺序拼接", "视频处理", "🎬", (0.78, 0.23, 0.23, 1), ConcatTool()),
         ToolCard("extract_audio", "音频提取", "从视频无损抽取音频", "视频处理", "🎵", (0.78, 0.23, 0.23, 1), ExtractAudioTool()),
         ToolCard("codec", "编码转换", "H.264 / H.265 / VP9 / AV1", "视频处理", "🧬", (0.78, 0.23, 0.23, 1), CodecTool()),
-        ToolCard("rotate", "视频旋转", "90° / 180° / 270°", "视频处理", "�", (0.78, 0.23, 0.23, 1), RotateTool()),
+        ToolCard("rotate", "视频旋转", "90° / 180° / 270°", "视频处理", "🔁", (0.78, 0.23, 0.23, 1), RotateTool()),
         ToolCard("audio_merge", "音频合并", "多段音频顺序拼接", "音频处理", "🎶", (0.16, 0.55, 0.45, 1), AudioMergeTool()),
         ToolCard("tts", "文字转语音", "云端多角色 · 同步 LRC 歌词", "音频处理", "🗣", (0.16, 0.55, 0.45, 1), TTSTool()),
+        ToolCard("id_card_ocr", "证件识别", "身份证/户口本 OCR 提取信息", "实用工具", "🪪", (0.29, 0.56, 0.89, 1), IDCardOCRTool()),
     ]
     return items
 

@@ -650,6 +650,44 @@ class SubtitleTool(Tool):
         return ["-vf", vf, "-c:v", "libx264", "-c:a", "copy", str(output)]
 
 
+class IDCardOCRTool(Tool):
+    def __init__(self):
+        super().__init__(
+            id="id_card_ocr", name="证件识别", desc="身份证/户口本 图片OCR提取信息",
+            category="实用工具", icon="🪪", color="#4A90E2",
+            input_kind="image", output_ext="json",
+            params=[
+                Param("doc_type", "证件类型", "select", default="auto", options=[
+                    ("auto", "自动识别"),
+                    ("id_card", "身份证"),
+                    ("household", "户口本"),
+                ]),
+                Param("engine", "OCR引擎", "select", default="paddle", options=[
+                    ("paddle", "PaddleOCR (推荐, 中文精准)"),
+                    ("tesseract", "Tesseract (轻量)"),
+                ]),
+                Param("save_raw", "保留原始识别文本", "checkbox", default=False),
+            ],
+        )
+
+    def build_args(self, p, inputs, output):
+        return ["__id_card_ocr__",
+                str(p.get("doc_type", "auto")),
+                str(p.get("engine", "paddle")),
+                str(p.get("save_raw", False)),
+                str(output)]
+
+    @staticmethod
+    def run_ocr(image_path: str, doc_type: str, engine: str,
+                save_raw: bool, output_path: str) -> Dict[str, Any]:
+        from .id_card_ocr import extract_id_info, save_result
+        info = extract_id_info(image_path, doc_type=doc_type, engine=engine)
+        if not save_raw and "raw_text" in info:
+            del info["raw_text"]
+        save_result(info, output_path)
+        return info
+
+
 # ============================================================
 # 注册所有工具
 # ============================================================
@@ -676,6 +714,7 @@ ALL_TOOLS: List[Tool] = [
     TTSTool(),
     M3U8Tool(),
     SubtitleTool(),
+    IDCardOCRTool(),
 ]
 
 TOOL_MAP: Dict[str, Tool] = {t.id: t for t in ALL_TOOLS}
