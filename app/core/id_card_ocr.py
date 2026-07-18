@@ -93,7 +93,13 @@ class IDCardOCR:
             return texts
         elif self.engine == "tesseract":
             img = self._Image.open(image_path)
-            text = self._ocr.image_to_string(img, lang="chi_sim+eng")
+            w, h = img.size
+            config = "--oem 3"
+            if w > h:
+                config += " --psm 6"
+            else:
+                config += " --psm 4"
+            text = self._ocr.image_to_string(img, lang="chi_sim+eng", config=config)
             lines = [l.strip() for l in text.split("\n") if l.strip()]
             return [(l, 0.8) for l in lines]
         return []
@@ -137,15 +143,20 @@ class IDCardOCR:
 
     @staticmethod
     def _detect_doc_type(text: str) -> str:
-        id_card_keywords = ["公民身份号码", "身份证", "签发机关", "有效期限"]
-        household_keywords = ["户号", "户主姓名", "住址", "常住人口登记卡", "户别"]
+        id_card_keywords = ["公民身份号码", "身份证", "签发机关", "有效期限",
+                             "姓名", "性别", "民族", "住址"]
+        household_keywords = ["户号", "户主姓名", "住址", "常住人口登记卡", "户别",
+                                "与户主关系", "户主", "本人"]
+        text_clean = re.sub(r'[\s　]+', '', text)
 
-        id_score = sum(1 for kw in id_card_keywords if kw in text)
-        hh_score = sum(1 for kw in household_keywords if kw in text)
+        id_score = sum(1 for kw in id_card_keywords if kw in text_clean or kw in text)
+        hh_score = sum(1 for kw in household_keywords if kw in text_clean or kw in text)
 
-        if id_score >= hh_score and id_score > 0:
+        if hh_score >= 2 and hh_score > id_score:
+            return "household"
+        if id_score > 0 and id_score >= hh_score:
             return "id_card"
-        elif hh_score > 0:
+        if hh_score > 0:
             return "household"
         return "id_card"
 
@@ -296,6 +307,13 @@ class IDCardOCR:
                 if t in ('男', '女'):
                     result["gender"] = t
                     break
+
+        if not gender_found and result.get("id_number") and len(result["id_number"]) == 18:
+            try:
+                gender_digit = int(result["id_number"][16])
+                result["gender"] = "男" if gender_digit % 2 == 1 else "女"
+            except (ValueError, IndexError):
+                pass
 
         return result
 
@@ -492,6 +510,13 @@ class IDCardOCR:
             m = re.search(r'[^性别女男]([男女])[^性别女男]', full_text)
             if m:
                 result["gender"] = m.group(1)
+
+        if not gender_found and result.get("id_number") and len(result["id_number"]) == 18:
+            try:
+                gender_digit = int(result["id_number"][16])
+                result["gender"] = "男" if gender_digit % 2 == 1 else "女"
+            except (ValueError, IndexError):
+                pass
 
         def _extract_village(text: str) -> Optional[str]:
             clean_text = re.sub(r'[\d]+[号弄栋单元室]?[\s\d]*$', '', text)
