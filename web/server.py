@@ -127,8 +127,6 @@ async def ocr_id_card(
         from app.core.id_card_ocr import extract_id_info, save_result
 
         info = extract_id_info(str(img_path), doc_type=doc_type, engine=engine)
-        if not save_raw and "raw_text" in info:
-            del info["raw_text"]
 
         ts = int(time.time())
         out_name = f"id_ocr_{ts}.json"
