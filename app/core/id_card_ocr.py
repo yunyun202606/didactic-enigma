@@ -161,47 +161,92 @@ class IDCardOCR:
         if id_match:
             result["id_number"] = id_match.group(0).upper()
 
-        name_patterns = [
-            r'姓\s*名\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
-            r'姓\s*名\s+([\u4e00-\u9fa5]{2,6})',
-            r'^\s*([\u4e00-\u9fa5]{2,6})\s*$',
-            r'Name\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
-            r'姓名\s*([\u4e00-\u9fa5]{2,6})',
-        ]
+        ocr_name_keywords = ['姓名', '姓 名', '姓 名:', '姓名:', '姓 名：', '姓名：',
+                              '名', 'name', 'Name', 'NAME']
+        name_value = None
 
-        name_found = False
-        for pat in name_patterns:
-            m = re.search(pat, full_text)
-            if m:
-                name_candidate = m.group(1).strip()
-                if not any(kw in name_candidate for kw in
-                           ["性别", "民族", "出生", "住址", "公民", "身份", "签发", "有效", "年月", "期限", "机关"]):
-                    if len(name_candidate) >= 2 and len(name_candidate) <= 6:
-                        result["name"] = name_candidate
-                        name_found = True
+        for i, (text, conf) in enumerate(texts):
+            text_clean = text.strip()
+            matched_kw = None
+            for kw in ocr_name_keywords:
+                if kw in text_clean:
+                    matched_kw = kw
+                    break
+            if matched_kw:
+                after = text_clean.split(matched_kw, 1)[1].strip()
+                after = re.sub(r'^[:：\s]+', '', after)
+                after = re.sub(r'[\s　]+', '', after)
+                name_m = re.match(r'([\u4e00-\u9fa5]{2,6})', after)
+                if name_m:
+                    candidate = name_m.group(1)
+                    if not any(kw in candidate for kw in
+                               ['性别', '民族', '出生', '住址', '公民', '身份', '签发', '有效']):
+                        name_value = candidate
+                        break
+                elif i + 1 < len(texts):
+                    next_text = texts[i + 1][0].strip()
+                    next_text = re.sub(r'[\s　]+', '', next_text)
+                    name_m = re.match(r'([\u4e00-\u9fa5]{2,6})', next_text)
+                    if name_m:
+                        candidate = name_m.group(1)
+                        if not any(kw in candidate for kw in
+                                   ['性别', '民族', '出生', '住址', '公民', '身份', '签发', '有效']):
+                            name_value = candidate
+                            break
+
+        if not name_value:
+            for pat in [
+                r'姓\s*名\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
+                r'姓\s*名\s+([\u4e00-\u9fa5]{2,6})',
+                r'Name\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
+            ]:
+                m = re.search(pat, full_text)
+                if m:
+                    candidate = m.group(1).strip()
+                    if not any(kw in candidate for kw in
+                               ['性别', '民族', '出生', '住址', '公民', '身份', '签发', '有效']):
+                        name_value = candidate
                         break
 
-        if not name_found:
-            gender_idx = len(full_text)
-            gender_match = re.search(r'性\s*别', full_text)
-            if gender_match:
-                gender_idx = gender_match.start()
+        if not name_value:
+            id_idx = full_text.find(result.get("id_number", ""))
+            if id_idx > 0:
+                above_text = full_text[:id_idx]
+                name_candidates = re.findall(r'\n([\u4e00-\u9fa5]{2,6})\n', above_text)
+                valid = [c for c in name_candidates
+                         if not any(kw in c for kw in
+                                    ['性别', '民族', '出生', '住址', '公民', '身份', '签发',
+                                     '有效', '年月', '期限', '机关'])
+                         and 2 <= len(c) <= 6]
+                if valid:
+                    name_value = valid[-1]
 
-            name_candidates = []
+        if not name_value:
+            candidates = []
             for text, conf in texts:
-                text_clean = text.strip()
-                if re.match(r'^[\u4e00-\u9fa5]{2,6}$', text_clean):
-                    if not any(kw in text_clean for kw in
-                               ["性别", "民族", "出生", "住址", "公民", "身份", "签发", "有效", "年月", "期限", "机关"]):
-                        name_candidates.append((text_clean, conf))
+                t = text.strip()
+                t = re.sub(r'[\s　]+', '', t)
+                if re.match(r'^[\u4e00-\u9fa5]{2,6}$', t):
+                    if not any(kw in t for kw in
+                               ['性别', '民族', '出生', '住址', '公民', '身份', '签发',
+                                '有效', '年月', '期限', '机关']):
+                        candidates.append((t, conf))
+            if candidates:
+                candidates.sort(key=lambda x: -x[1])
+                name_value = candidates[0][0]
 
-            if name_candidates:
-                name_candidates.sort(key=lambda x: -x[1])
-                result["name"] = name_candidates[0][0]
+        if name_value:
+            result["name"] = name_value
 
         gender_match = re.search(r'性\s*别\s*[:：]?\s*([男女])', full_text)
         if gender_match:
             result["gender"] = gender_match.group(1)
+        else:
+            for text, _ in texts:
+                m = re.search(r'([男女])\s*性', text)
+                if m:
+                    result["gender"] = m.group(1)
+                    break
 
         return result
 
@@ -217,58 +262,129 @@ class IDCardOCR:
         if id_match:
             result["id_number"] = id_match.group(0).upper()
 
-        name_patterns = [
-            r'(?<!户主)姓\s*名\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
-            r'(?<!户主)姓\s*名\s+([\u4e00-\u9fa5]{2,6})',
-            r'^姓名\s*([\u4e00-\u9fa5]{2,6})',
-            r'户主姓名\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
-            r'户主姓名\s+([\u4e00-\u9fa5]{2,6})',
-        ]
-        name_found = False
-        for pat in name_patterns:
-            m = re.search(pat, full_text)
-            if m:
-                name_candidate = m.group(1).strip()
-                if not any(kw in name_candidate for kw in
-                           ["性别", "民族", "出生", "住址", "公民", "身份", "签发", "有效", "年月", "期限", "机关", "户主", "与户主"]):
-                    if len(name_candidate) >= 2 and len(name_candidate) <= 6:
-                        result["name"] = name_candidate
-                        name_found = True
-                        break
+        name_value = None
+        head_name = None
+        personal_name = None
 
-        if not name_found:
-            name_candidates = []
+        for i, (text, conf) in enumerate(texts):
+            text_clean = text.strip()
+            text_one_line = re.sub(r'[\s　]+', '', text_clean)
+
+            if '户主姓名' in text_clean or '户主 姓名' in text_clean:
+                after = re.split(r'户主\s*姓名', text_clean, 1)[1].strip()
+                after = re.sub(r'^[:：\s]+', '', after)
+                after = re.sub(r'[\s　]+', '', after)
+                m = re.match(r'([\u4e00-\u9fa5]{2,6})', after)
+                if m:
+                    head_name = m.group(1)
+                elif i + 1 < len(texts):
+                    next_t = re.sub(r'[\s　]+', '', texts[i + 1][0].strip())
+                    m = re.match(r'([\u4e00-\u9fa5]{2,6})', next_t)
+                    if m:
+                        head_name = m.group(1)
+                continue
+
+            if '姓名' in text_clean and '户主' not in text_clean:
+                after = text_clean.split('姓名', 1)[1].strip()
+                after = re.sub(r'^[:：\s]+', '', after)
+                after = re.sub(r'[\s　]+', '', after)
+                m = re.match(r'([\u4e00-\u9fa5]{2,6})', after)
+                if m:
+                    candidate = m.group(1)
+                    if not any(kw in candidate for kw in
+                               ['性别', '民族', '出生', '住址', '公民', '身份', '签发', '有效', '户主']):
+                        personal_name = candidate
+                        break
+                elif i + 1 < len(texts):
+                    next_t = re.sub(r'[\s　]+', '', texts[i + 1][0].strip())
+                    m = re.match(r'([\u4e00-\u9fa5]{2,6})', next_t)
+                    if m:
+                        candidate = m.group(1)
+                        if not any(kw in candidate for kw in
+                                   ['性别', '民族', '出生', '住址', '公民', '身份', '签发', '有效', '户主']):
+                            personal_name = candidate
+                            break
+
+        if personal_name:
+            name_value = personal_name
+        elif head_name:
+            name_value = head_name
+
+        if not name_value:
+            for pat in [
+                r'(?<!户主)姓\s*名\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
+                r'姓\s*名\s+([\u4e00-\u9fa5]{2,6})',
+            ]:
+                m = re.search(pat, full_text)
+                if m:
+                    candidate = m.group(1).strip()
+                    if not any(kw in candidate for kw in
+                               ['性别', '民族', '出生', '住址', '公民', '身份', '签发',
+                                '有效', '年月', '期限', '机关', '户主', '与户主']):
+                        if 2 <= len(candidate) <= 6:
+                            name_value = candidate
+                            break
+
+        if not name_value:
+            id_idx = full_text.find(result.get("id_number", ""))
+            if id_idx > 0:
+                above_text = full_text[:id_idx]
+                found_names = re.findall(r'\n([\u4e00-\u9fa5]{2,6})\n', above_text)
+                valid = [c for c in found_names
+                         if not any(kw in c for kw in
+                                    ['性别', '民族', '出生', '住址', '公民', '身份', '签发',
+                                     '有效', '年月', '期限', '机关', '户主', '与户主',
+                                     '户别', '户号', '登记', '日期', '文化', '职业'])
+                         and 2 <= len(c) <= 6]
+                if valid:
+                    name_value = valid[-1]
+
+        if not name_value:
+            candidates = []
             for text, conf in texts:
-                text_clean = text.strip()
-                if re.match(r'^[\u4e00-\u9fa5]{2,6}$', text_clean):
-                    if not any(kw in text_clean for kw in
-                               ["性别", "民族", "出生", "住址", "公民", "身份", "签发", "有效",
-                                "年月", "期限", "机关", "户主", "与户主", "户别", "户号", "住址",
-                                "登记", "日期", "文化", "职业", "婚姻", "兵役", "身高", "血型"]):
-                        name_candidates.append((text_clean, conf))
-            if name_candidates:
-                name_candidates.sort(key=lambda x: -x[1])
-                result["name"] = name_candidates[0][0]
+                t = re.sub(r'[\s　]+', '', text.strip())
+                if re.match(r'^[\u4e00-\u9fa5]{2,6}$', t):
+                    if not any(kw in t for kw in
+                               ['性别', '民族', '出生', '住址', '公民', '身份', '签发',
+                                '有效', '年月', '期限', '机关', '户主', '与户主',
+                                '户别', '户号', '登记', '日期', '文化', '职业', '婚姻',
+                                '兵役', '身高', '血型', '住址']):
+                        candidates.append((t, conf))
+            if candidates:
+                candidates.sort(key=lambda x: -x[1])
+                name_value = candidates[0][0]
+
+        if name_value:
+            result["name"] = name_value
 
         gender_match = re.search(r'性\s*别\s*[:：]?\s*([男女])', full_text)
         if gender_match:
             result["gender"] = gender_match.group(1)
+        else:
+            for text, _ in texts:
+                m = re.search(r'([男女])\s*性', text)
+                if m:
+                    result["gender"] = m.group(1)
+                    break
 
         def _extract_village(text: str) -> Optional[str]:
             clean_text = re.sub(r'[\d]+[号弄栋单元室]?[\s\d]*$', '', text)
             clean_text = re.sub(r'\s+', '', clean_text)
 
-            boundary_chars = set('省市区县镇乡街道路号楼')
+            boundary_chars = set('省市区县镇乡街道路号楼村组')
 
             suffix_patterns = [
                 (r'村[\u4e00-\u9fa5\d]{1,4}组', 8),
                 (r'村民小组', 8),
+                (r'村村民小组', 8),
                 (r'社区居民小组', 8),
                 (r'社区[\u4e00-\u9fa5\d]{1,4}组', 8),
                 (r'居委会[\u4e00-\u9fa5\d]{1,4}组', 8),
                 (r'居民小组', 8),
                 (r'村(?:居)?委会', 8),
                 (r'社区居委会', 8),
+                (r'村生产队', 8),
+                (r'生产队', 6),
             ]
 
             for suffix_pat, max_prefix in suffix_patterns:
@@ -287,42 +403,52 @@ class IDCardOCR:
 
                     village_name = prefix[cut:]
                     if len(village_name) >= 2 and len(village_name) <= max_prefix:
-                        result = village_name + suffix
-                        if len(result) >= 3:
-                            return result
+                        res = village_name + suffix
+                        if len(res) >= 3:
+                            return res
             return None
 
-        vg = _extract_village(full_text)
-        if vg:
-            result["village_group"] = vg
-        else:
-            addr_patterns = [
-                r'(?:住址|本市住址|本市其他住址)\s*[:：]?\s*(.*)',
-            ]
-            addr_text = None
-            for pat in addr_patterns:
-                m = re.search(pat, full_text)
-                if m:
-                    addr_text = m.group(1).strip()
-                    break
-            if addr_text:
-                vg = _extract_village(addr_text)
-                if vg:
-                    result["village_group"] = vg
+        vg = None
 
-        if "village_group" not in result:
-            village_keywords = ["村", "组", "社区", "居委会", "村民小组", "居民小组", "村委会"]
+        for i, (text, conf) in enumerate(texts):
+            if any(kw in text for kw in ['住址', '本市住址', '本市其他住址', '籍贯']):
+                after = text
+                for kw in ['住址', '本市住址', '本市其他住址', '籍贯']:
+                    if kw in after:
+                        after = after.split(kw, 1)[1]
+                        break
+                after = re.sub(r'^[:：\s]+', '', after)
+                if after:
+                    v = _extract_village(after)
+                    if v:
+                        vg = v
+                        break
+                elif i + 1 < len(texts):
+                    v = _extract_village(texts[i + 1][0])
+                    if v:
+                        vg = v
+                        break
+
+        if not vg:
+            vg = _extract_village(full_text)
+
+        if not vg:
+            village_keywords = ["村", "组", "社区", "居委会", "村民小组", "居民小组",
+                                 "村委会", "生产队"]
             candidates = []
             for text, conf in texts:
                 text_clean = text.strip()
                 score = sum(1 for kw in village_keywords if kw in text_clean)
                 if score >= 2:
-                    vg = _extract_village(text_clean)
-                    if vg and len(vg) >= 3:
-                        candidates.append((vg, conf, score))
+                    v = _extract_village(text_clean)
+                    if v and len(v) >= 3:
+                        candidates.append((v, conf, score))
             if candidates:
                 candidates.sort(key=lambda x: (-x[2], -x[1]))
-                result["village_group"] = candidates[0][0]
+                vg = candidates[0][0]
+
+        if vg:
+            result["village_group"] = vg
 
         return result
 
