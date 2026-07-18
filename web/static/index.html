@@ -993,6 +993,7 @@ async function runOCR(tool) {
     progressText.textContent = '识别完成';
 
     const info = data.result;
+    const hasRaw = info.raw_text && info.raw_text.trim();
     resultContent.innerHTML = `
       <div class="result-grid">
         <div class="result-item">
@@ -1016,10 +1017,12 @@ async function runOCR(tool) {
           <div class="result-value">${info.doc_type === 'id_card' ? '身份证' : info.doc_type === 'household' ? '户口本' : '自动识别'}</div>
         </div>
       </div>
-      <details class="raw-text-section">
-        <summary>📝 查看原始识别文本（用于调试）</summary>
-        <pre class="raw-text">${(info.raw_text || '无').replace(/</g, '&lt;')}</pre>
-      </details>
+      ${hasRaw ? `
+      <div class="raw-text-section" style="margin-top: 16px;">
+        <div class="result-label" style="margin-bottom: 8px;">📝 OCR 原始识别文本（请复制此段发给我调试）</div>
+        <pre class="raw-text">${info.raw_text.replace(/</g, '&lt;')}</pre>
+      </div>
+      ` : ''}
       <a href="${data.output}" class="download-link" download>📥 下载 JSON 结果</a>
     `;
 

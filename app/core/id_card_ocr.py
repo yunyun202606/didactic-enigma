@@ -276,6 +276,10 @@ class IDCardOCR:
                 valid = [c for c in found if _is_name_strict(c)]
                 if valid:
                     name_value = valid[-1]
+                else:
+                    valid2 = [c for c in found if _is_name_loose(c)]
+                    if valid2:
+                        name_value = valid2[-1]
 
         if not name_value:
             candidates = []
