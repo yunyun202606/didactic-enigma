@@ -8,10 +8,39 @@ from pathlib import Path
 from typing import Dict, Optional, List, Tuple
 
 
+def _has_paddle() -> bool:
+    try:
+        import paddleocr  # noqa: F401
+        import paddle  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _has_tesseract() -> bool:
+    try:
+        import pytesseract  # noqa: F401
+        from PIL import Image  # noqa: F401
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
+def _default_engine() -> str:
+    if _has_paddle():
+        return "paddle"
+    if _has_tesseract():
+        return "tesseract"
+    return "paddle"
+
+
 class IDCardOCR:
     """身份证/户口本 OCR 识别器"""
 
-    def __init__(self, engine: str = "paddle"):
+    def __init__(self, engine: str = "auto"):
+        if engine == "auto":
+            engine = _default_engine()
         self.engine = engine
         self._ocr = None
 
@@ -27,8 +56,12 @@ class IDCardOCR:
                     show_log=False,
                 )
             except ImportError:
+                if _has_tesseract():
+                    self.engine = "tesseract"
+                    return self._init_ocr()
                 raise ImportError(
-                    "PaddleOCR 未安装, 请运行: pip install paddleocr paddlepaddle"
+                    "PaddleOCR 未安装, 请运行: pip install paddleocr paddlepaddle "
+                    "(需要 Python 3.7~3.11, 当前 Python 不支持时可使用 Tesseract)"
                 )
         elif self.engine == "tesseract":
             try:
@@ -205,7 +238,7 @@ class IDCardOCR:
 
 def extract_id_info(image_path: str | Path,
                     doc_type: str = "auto",
-                    engine: str = "paddle") -> Dict[str, Optional[str]]:
+                    engine: str = "auto") -> Dict[str, Optional[str]]:
     """便捷函数: 从图片提取身份证/户口本信息"""
     ocr = IDCardOCR(engine=engine)
     return ocr.extract_info(image_path, doc_type=doc_type)

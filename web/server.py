@@ -114,7 +114,7 @@ async def upload_file(file: UploadFile = File(...)):
 async def ocr_id_card(
     file: UploadFile = File(...),
     doc_type: str = Form("auto"),
-    engine: str = Form("paddle"),
+    engine: str = Form("auto"),
     save_raw: bool = Form(False),
 ):
     ext = Path(file.filename).suffix if file.filename else ".png"

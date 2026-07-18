@@ -662,9 +662,10 @@ class IDCardOCRTool(Tool):
                     ("id_card", "身份证"),
                     ("household", "户口本"),
                 ]),
-                Param("engine", "OCR引擎", "select", default="paddle", options=[
+                Param("engine", "OCR引擎", "select", default="auto", options=[
+                    ("auto", "自动选择 (优先 PaddleOCR, 不可用则 Tesseract)"),
                     ("paddle", "PaddleOCR (推荐, 中文精准)"),
-                    ("tesseract", "Tesseract (轻量)"),
+                    ("tesseract", "Tesseract (轻量, 系统级安装)"),
                 ]),
                 Param("save_raw", "保留原始识别文本", "checkbox", default=False),
             ],
@@ -673,7 +674,7 @@ class IDCardOCRTool(Tool):
     def build_args(self, p, inputs, output):
         return ["__id_card_ocr__",
                 str(p.get("doc_type", "auto")),
-                str(p.get("engine", "paddle")),
+                str(p.get("engine", "auto")),
                 str(p.get("save_raw", False)),
                 str(output)]
 
