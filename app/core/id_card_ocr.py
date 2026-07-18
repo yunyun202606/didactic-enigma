@@ -93,13 +93,10 @@ class IDCardOCR:
             return texts
         elif self.engine == "tesseract":
             img = self._Image.open(image_path)
-            w, h = img.size
-            config = "--oem 3"
-            if w > h:
-                config += " --psm 6"
-            else:
-                config += " --psm 4"
-            text = self._ocr.image_to_string(img, lang="chi_sim+eng", config=config)
+            try:
+                text = self._ocr.image_to_string(img, lang="chi_sim+eng")
+            except Exception:
+                text = self._ocr.image_to_string(img, lang="eng")
             lines = [l.strip() for l in text.split("\n") if l.strip()]
             return [(l, 0.8) for l in lines]
         return []
