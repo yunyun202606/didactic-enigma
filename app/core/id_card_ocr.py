@@ -161,22 +161,49 @@ class IDCardOCR:
         if id_match:
             result["id_number"] = id_match.group(0).upper()
 
-        name_blacklist = [
+        field_keywords = [
             '性别', '民族', '出生', '住址', '公民', '身份', '签发', '有效',
-            '年月', '期限', '机关', '村', '组', '队', '社', '区', '街', '路',
-            '号', '乡', '镇', '县', '市', '省', '屯', '庄', '湾', '沟', '坡',
-            '岭', '坪', '坝', '塘', '寨', '堡', '桥', '园', '苑', '大厦',
-            '小区', '居民', '村民', '生产', '大队', '小队',
+            '年月', '期限', '机关', '户主', '与户主', '户别', '户号',
+            '登记', '日期', '文化', '职业', '婚姻', '兵役', '身高', '血型',
+            '籍贯', '本市', '居民', '村民',
         ]
 
-        def _is_valid_name(s: str) -> bool:
+        ethnic_names = [
+            '汉族', '壮族', '满族', '回族', '苗族', '维吾尔族', '土家族',
+            '彝族', '蒙古族', '藏族', '布依族', '侗族', '瑶族', '朝鲜族',
+            '白族', '哈尼族', '哈萨克族', '黎族', '傣族', '畲族', '傈僳族',
+            '仡佬族', '东乡族', '高山族', '拉祜族', '水族', '佤族', '纳西族',
+            '羌族', '土族', '仫佬族', '锡伯族', '柯尔克孜族', '达斡尔族',
+            '景颇族', '毛南族', '撒拉族', '塔吉克族', '阿昌族', '普米族',
+            '鄂温克族', '怒族', '京族', '基诺族', '德昂族', '保安族',
+            '俄罗斯族', '裕固族', '乌孜别克族', '门巴族', '鄂伦春族',
+            '独龙族', '赫哲族', '珞巴族', '塔塔尔族',
+        ]
+
+        village_keywords = ['村', '组', '队', '社', '社区', '居委会', '大队', '小队', '生产队']
+
+        def _is_name_loose(s: str) -> bool:
             if not s or len(s) < 2 or len(s) > 6:
                 return False
             if not re.match(r'^[\u4e00-\u9fa5]+$', s):
                 return False
-            for kw in name_blacklist:
+            for kw in field_keywords:
                 if kw in s:
                     return False
+            for eth in ethnic_names:
+                if s == eth:
+                    return False
+            return True
+
+        def _looks_like_village(s: str) -> bool:
+            score = sum(1 for kw in village_keywords if kw in s)
+            return score >= 2 or (score >= 1 and re.search(r'[\d一二三四五六七八九十]+', s))
+
+        def _is_name_strict(s: str) -> bool:
+            if not _is_name_loose(s):
+                return False
+            if _looks_like_village(s):
+                return False
             return True
 
         ocr_name_keywords = ['姓名', '姓 名', '姓 名:', '姓名:', '姓 名：', '姓名：',
@@ -196,13 +223,13 @@ class IDCardOCR:
                 after = re.sub(r'^[:：\s]+', '', after)
                 after = re.sub(r'[\s　]+', '', after)
                 name_m = re.match(r'([\u4e00-\u9fa5]{2,6})', after)
-                if name_m and _is_valid_name(name_m.group(1)):
+                if name_m and _is_name_loose(name_m.group(1)):
                     name_value = name_m.group(1)
                     break
                 elif i + 1 < len(texts):
                     next_t = re.sub(r'[\s　]+', '', texts[i + 1][0].strip())
                     name_m = re.match(r'([\u4e00-\u9fa5]{2,6})', next_t)
-                    if name_m and _is_valid_name(name_m.group(1)):
+                    if name_m and _is_name_loose(name_m.group(1)):
                         name_value = name_m.group(1)
                         break
 
@@ -213,7 +240,7 @@ class IDCardOCR:
                 r'Name\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
             ]:
                 m = re.search(pat, full_text)
-                if m and _is_valid_name(m.group(1).strip()):
+                if m and _is_name_loose(m.group(1).strip()):
                     name_value = m.group(1).strip()
                     break
 
@@ -222,7 +249,7 @@ class IDCardOCR:
             if id_idx > 0:
                 above_text = full_text[:id_idx]
                 found = re.findall(r'\n([\u4e00-\u9fa5]{2,6})\n', above_text)
-                valid = [c for c in found if _is_valid_name(c)]
+                valid = [c for c in found if _is_name_strict(c)]
                 if valid:
                     name_value = valid[-1]
 
@@ -230,7 +257,7 @@ class IDCardOCR:
             candidates = []
             for text, conf in texts:
                 t = re.sub(r'[\s　]+', '', text.strip())
-                if _is_valid_name(t):
+                if _is_name_strict(t):
                     candidates.append((t, conf))
             if candidates:
                 candidates.sort(key=lambda x: -x[1])
@@ -284,14 +311,14 @@ class IDCardOCR:
         if id_match:
             result["id_number"] = id_match.group(0).upper()
 
-        name_blacklist = [
+        field_keywords = [
             '性别', '民族', '出生', '住址', '公民', '身份', '签发', '有效',
             '年月', '期限', '机关', '户主', '与户主', '户别', '户号',
             '登记', '日期', '文化', '职业', '婚姻', '兵役', '身高', '血型',
-            '村', '组', '队', '社', '区', '街', '路', '号', '乡', '镇',
-            '县', '市', '省', '屯', '庄', '湾', '沟', '坡', '岭', '坪',
-            '坝', '塘', '寨', '堡', '桥', '园', '苑', '大厦', '小区',
-            '居民', '村民', '生产', '大队', '小队', '籍贯', '本市',
+            '籍贯', '本市', '居民', '村民',
+        ]
+
+        ethnic_names = [
             '汉族', '壮族', '满族', '回族', '苗族', '维吾尔族', '土家族',
             '彝族', '蒙古族', '藏族', '布依族', '侗族', '瑶族', '朝鲜族',
             '白族', '哈尼族', '哈萨克族', '黎族', '傣族', '畲族', '傈僳族',
@@ -303,14 +330,30 @@ class IDCardOCR:
             '独龙族', '赫哲族', '珞巴族', '塔塔尔族',
         ]
 
-        def _is_valid_name(s: str) -> bool:
+        village_keywords = ['村', '组', '队', '社', '社区', '居委会', '大队', '小队', '生产队']
+
+        def _is_name_loose(s: str) -> bool:
             if not s or len(s) < 2 or len(s) > 6:
                 return False
             if not re.match(r'^[\u4e00-\u9fa5]+$', s):
                 return False
-            for kw in name_blacklist:
+            for kw in field_keywords:
                 if kw in s:
                     return False
+            for eth in ethnic_names:
+                if s == eth:
+                    return False
+            return True
+
+        def _looks_like_village(s: str) -> bool:
+            score = sum(1 for kw in village_keywords if kw in s)
+            return score >= 2 or (score >= 1 and re.search(r'[\d一二三四五六七八九十]+', s))
+
+        def _is_name_strict(s: str) -> bool:
+            if not _is_name_loose(s):
+                return False
+            if _looks_like_village(s):
+                return False
             return True
 
         name_value = None
@@ -339,12 +382,12 @@ class IDCardOCR:
                 after = re.sub(r'^[:：\s]+', '', after)
                 after = re.sub(r'[\s　]+', '', after)
                 m = re.match(r'([\u4e00-\u9fa5]{2,6})', after)
-                if m and _is_valid_name(m.group(1)):
+                if m and _is_name_loose(m.group(1)):
                     head_name = m.group(1)
                 elif i + 1 < len(texts):
                     next_t = re.sub(r'[\s　]+', '', texts[i + 1][0].strip())
                     m = re.match(r'([\u4e00-\u9fa5]{2,6})', next_t)
-                    if m and _is_valid_name(m.group(1)):
+                    if m and _is_name_loose(m.group(1)):
                         head_name = m.group(1)
                 continue
 
@@ -367,13 +410,13 @@ class IDCardOCR:
                 after = re.sub(r'^[:：\s]+', '', after)
                 after = re.sub(r'[\s　]+', '', after)
                 m = re.match(r'([\u4e00-\u9fa5]{2,6})', after)
-                if m and _is_valid_name(m.group(1)):
+                if m and _is_name_loose(m.group(1)):
                     personal_name = m.group(1)
                     break
                 elif i + 1 < len(texts):
                     next_t = re.sub(r'[\s　]+', '', texts[i + 1][0].strip())
                     m = re.match(r'([\u4e00-\u9fa5]{2,6})', next_t)
-                    if m and _is_valid_name(m.group(1)):
+                    if m and _is_name_loose(m.group(1)):
                         personal_name = m.group(1)
                         break
 
@@ -388,7 +431,7 @@ class IDCardOCR:
                 r'姓\s*名\s+([\u4e00-\u9fa5]{2,6})',
             ]:
                 m = re.search(pat, full_text)
-                if m and _is_valid_name(m.group(1).strip()):
+                if m and _is_name_loose(m.group(1).strip()):
                     name_value = m.group(1).strip()
                     break
 
@@ -397,7 +440,7 @@ class IDCardOCR:
             if id_idx > 0:
                 above_text = full_text[:id_idx]
                 found = re.findall(r'\n([\u4e00-\u9fa5]{2,6})\n', above_text)
-                valid = [c for c in found if _is_valid_name(c)]
+                valid = [c for c in found if _is_name_strict(c)]
                 if valid:
                     name_value = valid[-1]
 
@@ -405,7 +448,7 @@ class IDCardOCR:
             candidates = []
             for text, conf in texts:
                 t = re.sub(r'[\s　]+', '', text.strip())
-                if _is_valid_name(t):
+                if _is_name_strict(t):
                     candidates.append((t, conf))
             if candidates:
                 candidates.sort(key=lambda x: -x[1])
@@ -522,8 +565,6 @@ class IDCardOCR:
             vg = _extract_village(full_text)
 
         if not vg:
-            village_keywords = ["村", "组", "队", "社区", "居委会", "村民小组",
-                                 "居民小组", "村委会", "生产队", "生产大队"]
             candidates = []
             for text, conf in texts:
                 text_clean = text.strip()
