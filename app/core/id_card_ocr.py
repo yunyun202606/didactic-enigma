@@ -214,49 +214,65 @@ class IDCardOCR:
                 return False
             return True
 
-        ocr_name_keywords = ['姓名', '姓 名', '姓 名:', '姓名:', '姓 名：', '姓名：',
-                              '姓 名', '名:', '名：',
-                              'name', 'Name', 'NAME']
         name_value = None
+        name_label_re = re.compile(
+            r'(?:姓[\s　]*名|姓\s*各|姓\s*民|name|Name|NAME)\s*[:：]?\s*'
+        )
+        personal_found_by_label = False
 
         for i, (text, conf) in enumerate(texts):
             text_clean = text.strip()
-            matched_kw = None
-            for kw in ocr_name_keywords:
-                if kw in text_clean:
-                    matched_kw = kw
-                    break
-            if matched_kw:
-                after = text_clean.split(matched_kw, 1)[1].strip()
-                after = re.sub(r'^[:：\s]+', '', after)
+            text_flat = re.sub(r'[\s　]+', '', text_clean)
+            m = name_label_re.search(text_clean) or name_label_re.search(text_flat)
+            if m:
+                after = text_clean[m.end():].strip()
+                after = re.sub(r'^[:：\s　]+', '', after)
                 after = re.sub(r'[\s　]+', '', after)
                 name_m = re.match(r'([\u4e00-\u9fa5]{2,6})', after)
-                if name_m and _is_name_loose(name_m.group(1)):
+                if name_m and _is_name_loose(name_m.group(1)) and not _looks_like_village(name_m.group(1)):
                     name_value = name_m.group(1)
+                    personal_found_by_label = True
                     break
-                elif i + 1 < len(texts):
-                    next_t = re.sub(r'[\s　]+', '', texts[i + 1][0].strip())
-                    name_m = re.match(r'([\u4e00-\u9fa5]{2,6})', next_t)
-                    if name_m and _is_name_loose(name_m.group(1)):
-                        name_value = name_m.group(1)
+
+        if not name_value:
+            for i, (text, conf) in enumerate(texts):
+                text_clean = text.strip()
+                text_flat = re.sub(r'[\s　]+', '', text_clean)
+                if '姓' in text_clean and '名' in text_clean and '户' not in text_clean and '性' not in text_clean:
+                    nums = re.findall(r'([\u4e00-\u9fa5]{2,6})', text_flat.replace('姓名', '|', 1).split('|', 1)[-1])
+                    for c in nums:
+                        if _is_name_loose(c) and not _looks_like_village(c):
+                            name_value = c
+                            personal_found_by_label = True
+                            break
+                    if name_value:
                         break
+                if '姓' in text_flat and '名' in text_flat and '户' not in text_flat and '性' not in text_flat:
+                    parts = re.split(r'姓\s*名|姓\s+名', text_flat, 1)
+                    if len(parts) > 1:
+                        c = re.match(r'([\u4e00-\u9fa5]{2,6})', parts[-1])
+                        if c and _is_name_loose(c.group(1)) and not _looks_like_village(c.group(1)):
+                            name_value = c.group(1)
+                            personal_found_by_label = True
+                            break
 
         if not name_value:
             for pat in [
-                r'姓\s*名\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
+                r'(?<!户)姓\s*名\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
                 r'姓\s*名\s+([\u4e00-\u9fa5]{2,6})',
                 r'Name\s*[:：]?\s*([\u4e00-\u9fa5]{2,6})',
             ]:
                 m = re.search(pat, full_text)
-                if m and _is_name_loose(m.group(1).strip()):
+                if m and _is_name_loose(m.group(1).strip()) and not _looks_like_village(m.group(1).strip()):
                     name_value = m.group(1).strip()
+                    personal_found_by_label = True
                     break
 
         if not name_value:
             id_idx = full_text.find(result.get("id_number", ""))
             if id_idx > 0:
                 above_text = full_text[:id_idx]
-                found = re.findall(r'\n([\u4e00-\u9fa5]{2,6})\n', above_text)
+                found = re.findall(r'([\u4e00-\u9fa5]{2,6})', above_text)
                 valid = [c for c in found if _is_name_strict(c)]
                 if valid:
                     name_value = valid[-1]
@@ -275,23 +291,48 @@ class IDCardOCR:
             result["name"] = name_value
 
         gender_found = False
-        for text, _ in texts:
-            t = re.sub(r'[\s　]+', '', text)
-            m = re.search(r'性\s*别\s*[:：]?\s*([男女])', t)
+        gender_label_re = re.compile(
+            r'(?:性\s*别|性\s*另|生\s*别)\s*[:：]?\s*'
+        )
+        for i, (text, _conf) in enumerate(texts):
+            text_clean = text.strip()
+            text_flat = re.sub(r'[\s　]+', '', text_clean)
+            m = gender_label_re.search(text_clean) or gender_label_re.search(text_flat)
             if m:
-                result["gender"] = m.group(1)
-                gender_found = True
-                break
-            m = re.search(r'([男女])\s*性', t)
-            if m:
-                result["gender"] = m.group(1)
-                gender_found = True
-                break
-            m = re.search(r'性\s*别\s*([男女])', t)
-            if m:
-                result["gender"] = m.group(1)
-                gender_found = True
-                break
+                after = text_clean[m.end():].strip()
+                after = re.sub(r'^[:：\s　]+', '', after)
+                after = re.sub(r'[\s　]+', '', after)
+                gm = re.match(r'([男女])', after)
+                if gm:
+                    result["gender"] = gm.group(1)
+                    gender_found = True
+                    break
+                if i + 1 < len(texts):
+                    next_t = re.sub(r'[\s　]+', '', texts[i + 1][0].strip())
+                    gm = re.match(r'([男女])', next_t)
+                    if gm:
+                        result["gender"] = gm.group(1)
+                        gender_found = True
+                        break
+
+        if not gender_found:
+            for text, _ in texts:
+                t = re.sub(r'[\s　]+', '', text)
+                m = re.search(r'性\s*别\s*[:：]?\s*([男女])', t)
+                if m:
+                    result["gender"] = m.group(1)
+                    gender_found = True
+                    break
+                m = re.search(r'([男女])\s*性', t)
+                if m:
+                    result["gender"] = m.group(1)
+                    gender_found = True
+                    break
+                m = re.search(r'性\s*别\s*([男女])', t)
+                if m:
+                    result["gender"] = m.group(1)
+                    gender_found = True
+                    break
 
         if not gender_found:
             m = re.search(r'性\s*别\s*[:：]?\s*([男女])', full_text)
